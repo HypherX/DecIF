@@ -194,13 +194,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tp",
         type=int,
-        default=4,
+        default=8,
         help="Tensor parallel size for model distribution (default: 4)",
     )
     parser.add_argument(
         "--max_tokens",
         type=int,
-        default=4096,
+        default=8192,
         help="Maximum number of tokens to generate (default: 4096)",
     )
     parser.add_argument(

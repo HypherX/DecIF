@@ -100,11 +100,11 @@ def generate_scenarios_for_meta_requests(
         logger.info(f"Generating scenarios for {len(meta_requests)} meta requests...")
         outputs = vllm_engine.engine.generate(chat_messages, vllm_engine.sampling_params)
         
-        # Step 5: Process and save results
+        # Step 5: Process and save results to TXT file
         results = _process_generated_scenarios(meta_requests, outputs, scenarios_per_request)
-        _save_results(results, output_file)
+        _save_results_to_txt(results, output_file)
         
-        logger.info(f"Successfully generated scenarios for {len(results)} meta requests")
+        logger.info(f"Successfully generated {sum(len(s) for s in results.values())} scenarios")
         logger.info(f"Results saved to {output_file}")
 
     except Exception as e:
@@ -130,7 +130,7 @@ def _load_meta_requests(input_file: str) -> List[str]:
 
 
 def _build_scenario_prompts(meta_requests: List[str], scenarios_per_request: int) -> List[str]:
-    """Build scenario generation prompts for each meta request.
+    """Build scenario generation prompts for each meta request (English version).
     
     Args:
         meta_requests: List of meta requests
@@ -141,16 +141,16 @@ def _build_scenario_prompts(meta_requests: List[str], scenarios_per_request: int
     """
     scenario_prompt_template = (
         'For the meta request "{meta_request}", generate {count} diverse and realistic scenarios '
-        'that would require this action in everyday life. Each scenario should:\n'
-        '1) Be specific with clear context (who, what, where, why)\n'
-        '2) Be from different domains (work, education, personal life, etc.)\n'
-        '3) Be 1-2 sentences maximum\n'
+        'that would naturally require this action in everyday life. Each scenario should:\n'
+        '1) Include clear contextual elements (time, location, event trigger)\n'
+        '2) Cover different domains (work, study, family, social, etc.)\n'
+        '3) Be no more than 2 sentences and avoid mentioning specific personas\n'
         '4) Use hyphen formatting (- ...) for each scenario\n\n'
         'Example:\n'
-        'Meta request: "create guide"\n'
-        '- A fitness trainer needs to create a workout guide for elderly clients at a local community center\n'
-        '- A software company wants to create an onboarding guide for new remote employees\n'
-        '- A parent needs to create a morning routine guide for their children before school\n'
+        'Meta request: "Book a restaurant"\n'
+        '- To celebrate their anniversary, a couple wants to book a seaside restaurant with ocean views for the weekend\n'
+        '- A company needs to book a private room with projector equipment for a team dinner\n'
+        '- While traveling for business, one needs to book a hotel restaurant near the conference center that offers free breakfast\n'
         '...\n\n'
         'Now generate scenarios for:\n'
         'Meta request: {meta_request}'
@@ -195,7 +195,7 @@ def _process_generated_scenarios(
     outputs: List,
     max_scenarios: int
 ) -> Dict[str, List[str]]:
-    """Process generated outputs into structured scenarios.
+    """Process generated outputs into structured scenarios (English version).
     
     Args:
         meta_requests: List of original meta requests
@@ -209,19 +209,23 @@ def _process_generated_scenarios(
     
     for request, output in zip(meta_requests, outputs):
         generated_text = output.outputs[0].text.strip()
-        if "</think>" in generated_text:
-            generated_text = generated_text.split("</think>")[1].strip()
+        # Remove potential generation markers
+        if "<|FunctionCallBegin|>" in generated_text:
+            generated_text = generated_text.split("<|FunctionCallBegin|>")[1].strip()
         
-        # Parse scenarios with hyphen formatting
+        # Parse scenarios (filter out role-related content)
         scenarios = []
         for line in generated_text.split('\n'):
             line = line.strip()
             if line.startswith('-'):
                 scenario = line[1:].strip()
-                if scenario.endswith('.'):
-                    scenario = scenario[:-1].strip()
-                if scenario:
-                    scenarios.append(scenario)
+                # Filter out scenarios containing role keywords
+                if not _contains_role_keywords(scenario):
+                    # Remove trailing punctuation for consistency
+                    if scenario.endswith('.') or scenario.endswith('!') or scenario.endswith('?'):
+                        scenario = scenario[:-1].strip()
+                    if scenario:
+                        scenarios.append(scenario)
         
         # Deduplicate and limit scenarios
         unique_scenarios = list(dict.fromkeys(scenarios))[:max_scenarios]
@@ -230,19 +234,35 @@ def _process_generated_scenarios(
     return results
 
 
-def _save_results(results: Dict[str, List[str]], output_file: str) -> None:
-    """Save generated scenarios to JSON file.
+def _contains_role_keywords(text: str) -> bool:
+    """Check if text contains role-related keywords (for filtering)."""
+    role_keywords = {
+        "engineer", "designer", "student", "teacher", "doctor", "nurse", "manager", "supervisor",
+        "programmer", "analyst", "writer", "artist", "chef", "driver", "lawyer", "professor",
+        "junior", "senior", "expert", "novice", "beginner", "professional", "amateur"
+    }
+    return any(keyword.lower() in text.lower() for keyword in role_keywords)
+
+
+def _save_results_to_txt(results: Dict[str, List[str]], output_file: str) -> None:
+    """Save generated scenarios to TXT file (one scenario per line, no headers).
     
     Args:
         results: Dictionary of meta requests and their scenarios
-        output_file: Path to output file
+        output_file: Path to output TXT file
     """
     try:
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
+            # Write all scenarios directly, one per line
+            for scenarios in results.values():
+                for scenario in scenarios:
+                    f.write(f"{scenario}\n")
+        
+        logger.info(f"Successfully saved {sum(len(s) for s in results.values())} scenarios to {output_file}")
+        
     except IOError as e:
         logger.error(f"Error saving results to {output_file}: {str(e)}")
         raise
@@ -255,7 +275,7 @@ def parse_args() -> argparse.Namespace:
         Namespace object containing parsed arguments
     """
     parser = argparse.ArgumentParser(
-        description="Generate diverse scenarios for meta requests using vLLM."
+        description="Generate diverse scenarios for meta requests using vLLM and save to TXT."
     )
     
     parser.add_argument(
@@ -274,18 +294,18 @@ def parse_args() -> argparse.Namespace:
         "--output_file",
         type=str,
         required=True,
-        help="Path to save generated scenarios (JSON format)",
+        help="Path to save generated scenarios (TXT format, one scenario per line)",
     )
     parser.add_argument(
         "--tp",
         type=int,
-        default=4,
+        default=8,
         help="Tensor parallel size for model distribution (default: 4)",
     )
     parser.add_argument(
         "--max_tokens",
         type=int,
-        default=4096,
+        default=8192,
         help="Maximum number of tokens to generate (default: 2048)",
     )
     parser.add_argument(
@@ -297,7 +317,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scenarios_per_request",
         type=int,
-        default=30,
+        default=20,
         help="Number of scenarios to generate per meta request (default: 20)",
     )
     

@@ -14,7 +14,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class ResponseGenerator:
-    """A class for generating responses to instructions using vLLM."""
+    """A class for generating multiple responses to instructions using vLLM."""
     
     def __init__(
         self,
@@ -22,12 +22,14 @@ class ResponseGenerator:
         tp: int = 1,
         max_tokens: int = 4096,
         temperature: float = 0.6,
+        num_responses: int = 3,
     ):
         """Initialize the generator with model configuration."""
         self.model_name_or_path = model_name_or_path
         self.tp = tp
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.num_responses = num_responses
         self.llm_engine, self.sampling_params = self._initialize_engine()
         
     def _initialize_engine(self) -> Tuple[LLM, SamplingParams]:
@@ -44,8 +46,8 @@ class ResponseGenerator:
             sampling_params = SamplingParams(
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
-                top_p=0.8,
-                top_k=20,
+                top_p=0.95,
+                n=self.num_responses,
             )
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path)
             return llm_engine, sampling_params
@@ -53,25 +55,51 @@ class ResponseGenerator:
             logger.error(f"Failed to initialize vLLM engine: {str(e)}")
             raise
 
+    def apply_chat_template(self, query: str) -> str:
+        """Apply chat template to the query."""
+        template = (
+            "You are an expert tasked with answering the given query. "
+            "Please provide a clear and concise response directly, "
+            "without introductory phrases such as 'What a great question,' "
+            "'Here is the answer,' or similar expressions. Focus solely on addressing the query.\n"
+            "Now please answer the given query while strictly following its inside constraints.\n"
+            "[Query] {}"
+        )
+        messages = [
+            {"role": "user", "content": template.format(query)}
+        ]
+        try:
+            chat_message = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+            return chat_message
+        except Exception as e:
+            logger.error(f"Error applying chat template: {str(e)}")
+            return query  # 如果出错，返回原始query
+
     def generate_responses(
         self,
         input_json: str,
         output_json: str,
     ) -> None:
-        """Generate responses for each instruction."""
+        """Generate multiple responses for each instruction."""
         try:
             # Load queries
+            self.input_json_path = input_json
             queries = self._load_queries(input_json)
             logger.info(f"Loaded {len(queries)} queries from {input_json}")
             
-            # Prepare all prompts
-            prompts = self._prepare_prompts(queries)
+            # Prepare all prompts (使用chat template)
+            prompts = [self.apply_chat_template(query.strip()) for query in queries]
             
             # Batch generate all responses
-            logger.info(f"Generating responses for {len(prompts)} instructions...")
+            logger.info(f"Generating {self.num_responses} responses for each of {len(prompts)} instructions...")
             outputs = self.llm_engine.generate(prompts, self.sampling_params)
             
-            # Process results into a list of responses
+            # Process results into a list of response lists
             responses = self._process_outputs(outputs)
             
             # Save results
@@ -88,75 +116,46 @@ class ResponseGenerator:
         try:
             with open(input_json, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                return [item["refined_instruction"].strip() for item in data if "refined_instruction" in item]
+                return [item["instruction"].strip() for item in data if "instruction" in item]
         except Exception as e:
             logger.error(f"Error loading queries from {input_json}: {str(e)}")
             raise
 
-    def _prepare_prompts(self, queries: List[str]) -> List[str]:
-        """Prepare prompts for all queries."""
-        ## template for instruction-following data
-        template = (
-            "You are an expert tasked with answering the given query. "
-            "Please provide a clear and concise response directly, "
-            "without introductory phrases such as 'What a great question,' "
-            "'Here is the answer,' or similar expressions. Focus solely on addressing the query.\n"
-            "Now please answer the given query while strictly following its inside constraints.\n"
-            "[Query] {}"
-        )
-        ## template for general-purpose data
-        # template = (
-        #     "You are an expert tasked with answering the given query. "
-        #     "Please provide a clear and accurate response to the given query.\n"
-        #     "[Query] {}"
-        # )
-        
-        prompts = []
-        for query in queries:
-            message = {"role": "user", "content": template.format(query)}
-            try:
-                chat_message = self.tokenizer.apply_chat_template(
-                    [message],
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    enable_thinking=False
-                )
-                prompts.append(chat_message)
-            except Exception as e:
-                logger.error(f"Error applying chat template: {str(e)}")
-                continue
-                
-        return prompts
-
-    def _process_outputs(self, outputs: List) -> List[str]:
-        """Process outputs into a list of responses."""
+    def _process_outputs(self, outputs: List) -> List[List[str]]:
+        """Process outputs into a list of response lists."""
         responses = []
         for output in outputs:
-            response = output.outputs[0].text.strip()
-            if '</think>' in response:
-                response = response.split("</think>")[1].strip()
-            responses.append(response)
+            response_list = []
+            for choice in output.outputs:
+                response = choice.text.strip()
+                if '</think>' in response:
+                    response = response.split("</think>")[1].strip()
+                response_list.append(response)
+            responses.append(response_list)
         
         return responses
 
     def _save_results(
         self,
         queries: List[str],
-        responses: List[str],
+        responses: List[List[str]],
         output_json: str,
     ) -> None:
-        """Save results with single response per query."""
-        results = []
-        for query, response in zip(queries, responses):
-            results.append({
-                "instruction": query,
-                "response": response,
-            })
-        
+        """Save results with multiple responses per instruction."""
         try:
+            # Load original data to preserve all fields
+            with open(self.input_json_path, 'r', encoding='utf-8') as f:
+                original_data = json.load(f)
+
+            # Attach responses (as list) to each corresponding item
+            for item, response_list in zip(original_data, responses):
+                item["responses"] = response_list
+
+            # Save updated data
             Path(output_json).parent.mkdir(parents=True, exist_ok=True)
             with open(output_json, 'w', encoding='utf-8') as f:
-                json.dump(results, f, indent=2, ensure_ascii=False)
+                json.dump(original_data, f, indent=2, ensure_ascii=False)
+
         except IOError as e:
             logger.error(f"Error saving results to {output_json}: {str(e)}")
             raise
@@ -165,7 +164,7 @@ class ResponseGenerator:
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Generate responses to instructions using vLLM."
+        description="Generate multiple responses to instructions using vLLM."
     )
     
     parser.add_argument(
@@ -189,20 +188,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tp",
         type=int,
-        default=4,
+        default=8,
         help="Tensor parallel size for model distribution (default: 4)",
     )
     parser.add_argument(
         "--max_tokens",
         type=int,
-        default=4096,
+        default=8192,
         help="Maximum number of tokens to generate (default: 4096)",
     )
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.7,
+        default=0.6,
         help="Sampling temperature for generation (default: 0.6)",
+    )
+    parser.add_argument(
+        "--num_responses",
+        type=int,
+        default=8,
+        help="Number of responses to generate per instruction (default: 3)",
     )
     
     return parser.parse_args()
@@ -219,6 +224,7 @@ def main() -> None:
             tp=args.tp,
             max_tokens=args.max_tokens,
             temperature=args.temperature,
+            num_responses=args.num_responses,
         )
         
         # Generate responses
