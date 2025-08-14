@@ -55,7 +55,7 @@ def filter_rl_data(input_file: str, output_file: str) -> None:
             
         # 检查所有function代码
         all_functions_valid = True
-        with ThreadPoolExecutor(max_workers=32) as executor:
+        with ThreadPoolExecutor(max_workers=16) as executor:
             futures = {executor.submit(execute_evaluation_function, func): func for func in functions}
             for future in as_completed(futures):
                 try:

@@ -21,6 +21,6 @@ for d in data:
         ]
     })
 
-with open("../LLaMA-Factory/data/decif-20k.jsonl", "w") as f:
+with open("../LLaMA-Factory/data/decif-10k-small.jsonl", "w") as f:
     for r in results:
         f.write(json.dumps(r, ensure_ascii=False) + "\n")

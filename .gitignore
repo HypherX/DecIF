@@ -1,6 +1,5 @@
 data/
 .ipynb_checkpoints/
 pic/
-plot_figure.py
 post_process.py
 10_leakage_filtering.py

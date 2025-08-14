@@ -7,12 +7,12 @@ bar_width = 0.35
 index = np.arange(len(categories))
 
 # 第一组柱状图数据
-data1_8B = [68.93, 49.55, 53.84, 50.80]  # 8B模型在第一组数据中的表现
-data1_32B = [70.97, 49.94, 55.29, 50.50]  # 32B模型在第一组数据中的表现
+data1_8B = [74.03, 60.46, 63.43, 66.80]  # 8B模型在第一组数据中的表现
+data1_32B = [75.67, 61.15, 64.87, 67.20]  # 32B模型在第一组数据中的表现
 
 # 第二组柱状图数据
-data2_8B = [69.88, 51.46, 58.30, 53.10]  # 8B模型在第二组数据中的表现
-data2_32B = [71.56, 52.47, 59.17, 53.40]  # 32B模型在第二组数据中的表现
+data2_8B = [84.22, 67.67, 67.02, 52.20]  # 8B模型在第二组数据中的表现
+data2_32B = [89.34, 71.62, 69.70, 59.50]  # 32B模型在第二组数据中的表现
 
 color_8B = '#4E79A7'
 color_32B = '#F28E2B'
@@ -20,8 +20,8 @@ color_32B = '#F28E2B'
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.2, 2.4), gridspec_kw={'wspace': 0.10})
 
 # --- 第一个柱状图 ---
-bars1_8B = ax1.bar(index - bar_width/2, data1_8B, bar_width, color=color_8B, label='8B', edgecolor='white', linewidth=1.1)
-bars1_32B = ax1.bar(index + bar_width/2, data1_32B, bar_width, color=color_32B, label='70B', edgecolor='white', linewidth=1.1)
+bars1_8B = ax1.bar(index - bar_width/2, data1_8B, bar_width, color=color_8B, label='hard', edgecolor='white', linewidth=1.1)
+bars1_32B = ax1.bar(index + bar_width/2, data1_32B, bar_width, color=color_32B, label='soft', edgecolor='white', linewidth=1.1)
 
 ax1.set_ylabel('Performance (%)', fontsize=10,labelpad=-5)
 ax1.set_xticks(index)
@@ -37,8 +37,8 @@ ax1.set_title('(a)', fontsize=10, pad=3)
 ax1.tick_params(axis='y', labelsize=9)
 
 # --- 第二个柱状图 ---
-bars2_8B = ax2.bar(index - bar_width/2, data2_8B, bar_width, color=color_8B, label='8B', edgecolor='white', linewidth=1.1)
-bars2_32B = ax2.bar(index + bar_width/2, data2_32B, bar_width, color=color_32B, label='32B', edgecolor='white', linewidth=1.1)
+bars2_8B = ax2.bar(index - bar_width/2, data2_8B, bar_width, color=color_8B, label='hard', edgecolor='white', linewidth=1.1)
+bars2_32B = ax2.bar(index + bar_width/2, data2_32B, bar_width, color=color_32B, label='soft', edgecolor='white', linewidth=1.1)
 
 ax2.set_ylabel('Performance (%)', fontsize=10,labelpad=-5)
 ax2.set_xticks(index)
@@ -55,6 +55,5 @@ ax2.tick_params(axis='y', labelsize=9)
 # --- 让y轴标签不重叠 ---
 ax2.yaxis.label.set_visible(False)  # 只留左图有ylabel
 
-# plt.tight_layout(pad=0.7)
-plt.savefig('pic/bar_half_column.pdf', dpi=300, bbox_inches='tight')
+plt.savefig('pic/bar_reward.pdf', dpi=300, bbox_inches='tight')
 plt.show()
